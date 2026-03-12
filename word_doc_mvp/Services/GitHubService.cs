@@ -1,0 +1,284 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Octokit;
+using word_doc_mvp.Models;
+
+namespace word_doc_mvp.Services
+{
+    public class GitHubService
+    {
+        private readonly GitHubClient _client;
+        private readonly string _owner;
+
+        public GitHubService(GitHubSettings settings)
+        {
+            _owner = settings.Username;
+            _client = new GitHubClient(new ProductHeaderValue("word-doc-mvp"))
+            {
+                Credentials = new Credentials(settings.Token)
+            };
+        }
+
+        /// <summary>
+        /// Tests connectivity by fetching the authenticated user.
+        /// Returns the login name on success.
+        /// </summary>
+        public async Task<string> TestConnectionAsync()
+        {
+            var user = await _client.User.Current();
+            return user.Login;
+        }
+
+        /// <summary>
+        /// Ensures the target repository exists. Creates it if missing.
+        /// </summary>
+        public async Task<Repository> EnsureRepositoryAsync(string repoName)
+        {
+            try
+            {
+                return await _client.Repository.Get(_owner, repoName);
+            }
+            catch (NotFoundException)
+            {
+                var newRepo = new NewRepository(repoName)
+                {
+                    AutoInit = true,
+                    Description = "DOCX version control - normalized XML tracking",
+                    Private = false
+                };
+                return await _client.Repository.Create(newRepo);
+            }
+        }
+
+        /// <summary>
+        /// Full pipeline: creates a branch, commits the normalized XML, and opens a PR.
+        /// Returns the HTML URL of the created pull request.
+        /// </summary>
+        public async Task<string> CreatePullRequestWithNormalizedXmlAsync(
+            string repoName,
+            string normalizedXml,
+            string branchName,
+            string commitMessage,
+            Action<string> log = null)
+        {
+            log?.Invoke("Ensuring repository exists...");
+            var repo = await EnsureRepositoryAsync(repoName);
+            long repoId = repo.Id;
+
+            // Determine the default branch (usually "main" or "master")
+            string defaultBranch = repo.DefaultBranch ?? "main";
+
+            log?.Invoke($"Getting HEAD of '{defaultBranch}' branch...");
+            Reference mainRef;
+            try
+            {
+                mainRef = await _client.Git.Reference.Get(
+                    _owner, repoName, $"heads/{defaultBranch}");
+            }
+            catch (NotFoundException)
+            {
+                // Repository is empty — push initial commit directly to default branch
+                log?.Invoke("Repository is empty. Creating initial commit on default branch...");
+                await CreateInitialCommitAsync(repoName, defaultBranch, normalizedXml, commitMessage, log);
+                log?.Invoke("Initial commit pushed. No PR needed for the first version.");
+                return repo.HtmlUrl;
+            }
+
+            string baseSha = mainRef.Object.Sha;
+
+            log?.Invoke($"Creating branch '{branchName}'...");
+            await _client.Git.Reference.Create(
+                _owner, repoName,
+                new NewReference($"refs/heads/{branchName}", baseSha));
+
+            log?.Invoke("Uploading normalized XML blob...");
+            var blob = await _client.Git.Blob.Create(
+                _owner, repoName,
+                new NewBlob
+                {
+                    Content = normalizedXml,
+                    Encoding = EncodingType.Utf8
+                });
+
+            log?.Invoke("Building tree...");
+            var baseCommit = await _client.Git.Commit.Get(_owner, repoName, baseSha);
+            var newTree = await _client.Git.Tree.Create(
+                _owner, repoName,
+                new NewTree
+                {
+                    BaseTree = baseCommit.Tree.Sha,
+                    Tree =
+                    {
+                        new NewTreeItem
+                        {
+                            Path = "document.xml",
+                            Mode = "100644",
+                            Type = TreeType.Blob,
+                            Sha = blob.Sha
+                        }
+                    }
+                });
+
+            log?.Invoke("Creating commit...");
+            var newCommit = await _client.Git.Commit.Create(
+                _owner, repoName,
+                new NewCommit(commitMessage, newTree.Sha, baseSha));
+
+            log?.Invoke("Updating branch reference...");
+            await _client.Git.Reference.Update(
+                _owner, repoName,
+                $"heads/{branchName}",
+                new ReferenceUpdate(newCommit.Sha));
+
+            log?.Invoke("Creating pull request...");
+            var pr = await _client.PullRequest.Create(
+                _owner, repoName,
+                new NewPullRequest(commitMessage, branchName, defaultBranch)
+                {
+                    Body = $"Automated document update.\n\n" +
+                           $"Branch: `{branchName}`\n" +
+                           $"Committed at: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"
+                });
+
+            log?.Invoke($"Pull request created: {pr.HtmlUrl}");
+            return pr.HtmlUrl;
+        }
+
+        /// <summary>
+        /// Creates the very first commit in an empty repository by building
+        /// a tree and commit from scratch, then pointing the default branch at it.
+        /// </summary>
+        private async Task CreateInitialCommitAsync(
+            string repoName,
+            string defaultBranch,
+            string normalizedXml,
+            string commitMessage,
+            Action<string> log)
+        {
+            log?.Invoke("Uploading blob for initial commit...");
+            var blob = await _client.Git.Blob.Create(
+                _owner, repoName,
+                new NewBlob
+                {
+                    Content = normalizedXml,
+                    Encoding = EncodingType.Utf8
+                });
+
+            log?.Invoke("Creating tree...");
+            var tree = await _client.Git.Tree.Create(
+                _owner, repoName,
+                new NewTree
+                {
+                    Tree =
+                    {
+                        new NewTreeItem
+                        {
+                            Path = "document.xml",
+                            Mode = "100644",
+                            Type = TreeType.Blob,
+                            Sha = blob.Sha
+                        }
+                    }
+                });
+
+            log?.Invoke("Creating initial commit...");
+            var commit = await _client.Git.Commit.Create(
+                _owner, repoName,
+                new NewCommit(commitMessage, tree.Sha));
+
+            log?.Invoke("Setting default branch reference...");
+            try
+            {
+                await _client.Git.Reference.Update(
+                    _owner, repoName,
+                    $"heads/{defaultBranch}",
+                    new ReferenceUpdate(commit.Sha));
+            }
+            catch (NotFoundException)
+            {
+                await _client.Git.Reference.Create(
+                    _owner, repoName,
+                    new NewReference($"refs/heads/{defaultBranch}", commit.Sha));
+            }
+        }
+
+        /// <summary>
+        /// Returns the names of all branches in the repository.
+        /// </summary>
+        public async Task<List<string>> ListBranchesAsync(string repoName)
+        {
+            var branches = await _client.Repository.Branch.GetAll(_owner, repoName);
+            return branches.Select(b => b.Name).ToList();
+        }
+
+        /// <summary>
+        /// Fetches the text content of a file from a specific branch.
+        /// Uses the Contents API first; falls back to the Git Blob API
+        /// for files that exceed the 1 MB Contents API limit.
+        /// </summary>
+        public async Task<string> GetFileContentAsync(
+            string repoName, string branchName, string filePath,
+            Action<string> log = null)
+        {
+            try
+            {
+                log?.Invoke($"Fetching '{filePath}' from branch '{branchName}' via Contents API...");
+                var contents = await _client.Repository.Content.GetAllContentsByRef(
+                    _owner, repoName, filePath, branchName);
+
+                if (contents.Count > 0 && !string.IsNullOrEmpty(contents[0].Content))
+                    return contents[0].Content;
+
+                // Content field is null when file > 1 MB — fall through to blob API
+                log?.Invoke("File too large for Contents API, falling back to Blob API...");
+            }
+            catch (Octokit.NotFoundException)
+            {
+                throw new InvalidOperationException(
+                    $"File '{filePath}' not found on branch '{branchName}'.");
+            }
+            catch (Exception)
+            {
+                log?.Invoke("Contents API failed, falling back to Blob API...");
+            }
+
+            return await GetFileViaBlobApiAsync(repoName, branchName, filePath, log);
+        }
+
+        private async Task<string> GetFileViaBlobApiAsync(
+            string repoName, string branchName, string filePath,
+            Action<string> log)
+        {
+            log?.Invoke($"Resolving branch '{branchName}' reference...");
+            var branchRef = await _client.Git.Reference.Get(
+                _owner, repoName, $"heads/{branchName}");
+
+            var commitSha = branchRef.Object.Sha;
+            var commit = await _client.Git.Commit.Get(_owner, repoName, commitSha);
+
+            log?.Invoke("Walking tree to locate file blob...");
+            var tree = await _client.Git.Tree.GetRecursive(_owner, repoName, commit.Tree.Sha);
+
+            var treeItem = tree.Tree.FirstOrDefault(
+                t => t.Path.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+
+            if (treeItem == null)
+                throw new InvalidOperationException(
+                    $"File '{filePath}' not found in tree for branch '{branchName}'.");
+
+            log?.Invoke("Downloading blob content...");
+            var blob = await _client.Git.Blob.Get(_owner, repoName, treeItem.Sha);
+
+            if (blob.Encoding == EncodingType.Base64)
+            {
+                byte[] bytes = Convert.FromBase64String(blob.Content);
+                return Encoding.UTF8.GetString(bytes);
+            }
+
+            return blob.Content;
+        }
+    }
+}
