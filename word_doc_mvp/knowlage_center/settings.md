@@ -1,2 +1,0 @@
-githib_username: dmitry-oss-ops
-github_token: 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
