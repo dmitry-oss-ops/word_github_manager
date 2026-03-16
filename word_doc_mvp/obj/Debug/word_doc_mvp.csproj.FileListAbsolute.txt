@@ -1,0 +1,12 @@
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\bin\Debug\DocumentFormat.OpenXml.dll
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\bin\Debug\Octokit.dll
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\word_doc_mvp.csproj.AssemblyReference.cache
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\word_doc_mvp.Properties.Resources.resources
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\word_doc_mvp.csproj.GenerateResource.cache
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\word_doc_mvp.csproj.CoreCompileInputs.cache
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\word_doc.72EDF100.Up2Date
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\bin\Debug\NotepadPlus.exe.config
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\bin\Debug\NotepadPlus.exe
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\bin\Debug\NotepadPlus.pdb
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\NotepadPlus.exe
+C:\Users\Dmitr\OneDrive\Документы\appian\word_doc_mvp\word_doc_mvp\word_doc_mvp\obj\Debug\NotepadPlus.pdb
